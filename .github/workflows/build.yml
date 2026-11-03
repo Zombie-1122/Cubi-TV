@@ -1,0 +1,69 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.9
+
+      - name: Version from tag
+        id: ver
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "name=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=0.0.${{ github.run_number }}-dev" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Optional: use your own private signing key instead of the one in /keystore
+      - name: Use private keystore (if secrets are set)
+        if: ${{ env.KEYSTORE_BASE64 != '' }}
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          echo "KEYSTORE_PATH=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+          echo "KEYSTORE_PASSWORD=${{ secrets.KEYSTORE_PASSWORD }}" >> "$GITHUB_ENV"
+          echo "KEY_ALIAS=${{ secrets.KEY_ALIAS }}" >> "$GITHUB_ENV"
+          echo "KEY_PASSWORD=${{ secrets.KEY_PASSWORD }}" >> "$GITHUB_ENV"
+
+      - name: Build release APK
+        run: >
+          gradle assembleRelease
+          -PversionName=${{ steps.ver.outputs.name }}
+          -PversionCode=${{ github.run_number }}
+          -PgithubRepo=${{ github.repository }}
+
+      - name: Rename APK
+        run: cp app/build/outputs/apk/release/app-release.apk CubiTV-${{ steps.ver.outputs.name }}.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CubiTV-apk
+          path: CubiTV-*.apk
+
+      - name: Publish GitHub Release (tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: CubiTV-*.apk
+          generate_release_notes: true
