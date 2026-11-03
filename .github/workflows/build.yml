@@ -27,6 +27,16 @@ jobs:
         with:
           gradle-version: 8.9
 
+      # Finds the Gradle project even if the files ended up in a sub-folder of the repo
+      - name: Find project folder
+        run: |
+          F=$(find . -name settings.gradle.kts -not -path './.git/*' | head -1)
+          if [ -z "$F" ]; then
+            echo "::error::settings.gradle.kts not found. Upload the project files (app/, keystore/, settings.gradle.kts, build.gradle.kts...) to the repo."
+            exit 1
+          fi
+          echo "PROJECT_DIR=$(dirname "$F")" >> "$GITHUB_ENV"
+
       - name: Version from tag
         id: ver
         run: |
@@ -48,13 +58,13 @@ jobs:
 
       - name: Build release APK
         run: >
-          gradle assembleRelease
+          gradle -p "$PROJECT_DIR" assembleRelease
           -PversionName=${{ steps.ver.outputs.name }}
           -PversionCode=${{ github.run_number }}
           -PgithubRepo=${{ github.repository }}
 
       - name: Rename APK
-        run: cp app/build/outputs/apk/release/app-release.apk CubiTV-${{ steps.ver.outputs.name }}.apk
+        run: cp "$PROJECT_DIR/app/build/outputs/apk/release/app-release.apk" CubiTV-${{ steps.ver.outputs.name }}.apk
 
       - uses: actions/upload-artifact@v4
         with:
